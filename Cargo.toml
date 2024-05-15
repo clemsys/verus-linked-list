@@ -1,0 +1,9 @@
+[package]
+name = "verus_linked_list"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+builtin_macros = { git = "https://github.com/verus-lang/verus.git" }
+builtin = { git = "https://github.com/verus-lang/verus.git" }
+vstd = { git = "https://github.com/verus-lang/verus.git" }
