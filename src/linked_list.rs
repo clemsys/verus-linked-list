@@ -115,5 +115,16 @@ verus! {
                 None => None,
             }
         }
+
+        /// Verus does not support the Index trait for arbitrary types yet
+        pub fn index(&self, i: usize) -> (result: &T)
+            requires
+                self.valid(),
+                i < self@.len(),
+            ensures
+                result == self@[i as int],
+        {
+            &self.0.as_ref().unwrap().index(i)
+        }
     }
 }

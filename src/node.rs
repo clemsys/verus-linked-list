@@ -139,13 +139,9 @@ verus! {
             };
             result
         }
-    }
 
-
-    impl<T> std::ops::Index<usize> for Node<T> {
-        type Output = T;
-
-        fn index(&self, index: usize) -> (result: &T)
+        /// Verus does not support the Index trait for arbitrary types yet
+        pub fn index(&self, index: usize) -> (result: &T)
             requires
                 self.valid(),
                 index < self@.len(),

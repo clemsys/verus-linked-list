@@ -17,6 +17,9 @@ verus! {
         assert(list@[4] == 0);
         list.push(5);
 
+        let k = list.index(3);
+        assert(k == 2);
+
         let popped = list.pop();
         assert(popped matches Some(i) && i == 5);
         let popped = list.pop();
