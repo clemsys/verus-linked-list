@@ -1,3 +1,4 @@
+use crate::node::Node;
 use vstd::prelude::*;
 
 verus! {
@@ -7,79 +8,39 @@ verus! {
     }
 
     #[derive(Debug, Clone)]
-    pub struct Node<T> {
-        pub head: T,
-        pub tail: Option<Box<Node<T>>>,
-        pub ghost length: usize,
-    }
+    pub struct LinkedList<T>(pub Option<Node<T>>);
 
-    impl<T> Node<T> {
-        pub open spec fn valid(&self) -> bool
-            decreases self.length
-        {
-            &&& self@ =~= Seq::new(self.length as nat, |i: int| self[i])
-            &&& self@[0] == self.head
-            &&& match self.tail {
-                Some(node) => self.length == node.length + 1 && node@ =~= Seq::new((self.length - 1) as nat, |i: int| self[i + 1]) && node.valid(),
-                None => self.length == 1,
+    pub closed spec fn make_T<T>() -> T; // ghost constructor used in View and DeepView
+
+    impl<T> View for LinkedList<T> {
+        type V = Seq<T>;
+
+        open spec fn view(&self) -> Seq<T> {
+            match &self.0 {
+                Some(node) => node.view(),
+                None => Seq::new(0, |i: int| make_T()),
             }
         }
+    }
 
-        pub proof fn length_content_equivalence(&self)
-            requires
-                self.valid(),
-            ensures
-                self.length == 1 <==> self.tail.is_none(),
-                self.length > 1 <==> self.tail.is_some(),
-        {
-            assert(self.tail.is_none() ==> self.length == 1);
-            assert(self.tail.is_some() ==> self.length > 1) by {
-                assert(self.tail.is_some() ==> self.tail->0.length > 0) by {
-                    assert(self.tail.is_some() ==> self.tail->0.valid());
-                };
-            };
+    impl<T: DeepView> DeepView for LinkedList<T> {
+        type V = Seq<T::V>;
+
+        open spec fn deep_view(&self) -> Seq<T::V> {
+            match &self.0 {
+                Some(node) => node.deep_view(),
+                None => Seq::new(0, |i: int| make_T()),
+            }
         }
+    }
 
-        pub open spec fn spec_new(&self, value: T) -> bool {
-            self@ =~= Seq::new(1, |i| value)
+    impl<T> Default for LinkedList<T> {
+        fn default() -> Self {
+            LinkedList::new()
         }
+    }
 
-        pub fn new(value: T) -> (result: Self)
-            ensures
-                result.valid(),
-                result.length == 1,
-                result.spec_new(value),
-        {
-            let node = Self {
-                head: value,
-                tail: None,
-                length: 1,
-            };
-            assume(node.spec_new(value));
-            node
-        }
-
-        pub open spec fn spec_push(&self, node: &Node<T>, value: T) -> bool {
-            self@ =~= Seq::new((node.length + 1) as nat, |i: int| if i == 0 { value } else { node[i - 1] })
-        }
-
-        pub fn push(self, value: T) -> (result: Self)
-            requires
-                self.valid(),
-                self.length < usize::MAX,
-            ensures
-                result.valid(),
-                result.length == self.length + 1,
-        {
-            let new_node = Node {
-                head: value,
-                length: self.length + 1,
-                tail: Some(Box::new(self)),
-            };
-            assume(new_node.spec_push(&self, value));
-            new_node
-        }
-
+    impl <T> LinkedList<T> {
         pub open spec fn spec_len(&self) -> nat {
             self.view().len()
         }
@@ -88,62 +49,71 @@ verus! {
             self.view().index(i)
         }
 
-        pub fn next(&self) -> (result: Option<&Node<T>>)
+        pub open spec fn valid(&self) -> bool
+            decreases self@.len()
+        {
+            ||| self.0 matches None && self@.len() == 0
+            ||| self.0 matches Some(node) && node.valid()
+        }
+
+        pub fn new() -> (list: Self)
+            ensures
+                list.valid(),
+                list@.len() == 0,
+        {
+            LinkedList(None)
+        }
+
+        pub proof fn length_content_equivalence(&self)
             requires
                 self.valid(),
             ensures
-                self.length > 1 <==> result.is_some(),
-                self.length == 1 <==> result.is_none(),
-                result.is_some() ==> result->0.valid(),
+                self@.len() == 0 <==> self.0.is_none(),
+                self@.len() > 0 <==> self.0.is_some(),
         {
-            proof {
-                self.length_content_equivalence()
-            }
-            let result: Option<&Node<T>> = if self.tail.is_some() {
-                Some(self.tail.as_ref().unwrap())
-            } else {
-                None
+        }
+
+        pub fn push(&mut self, value: T)
+            requires
+                old(self).valid(),
+                old(self)@.len() < usize::MAX,
+            ensures
+                self.valid(),
+                self@.len() == old(self)@.len() + 1,
+                self@[0] == value,
+                forall|i: int| 0 <= i < old(self)@.len() ==> self@[i + 1] == old(self)@[i],
+        {
+            let new_node = match self.0.take() {
+                Some(node) => node.push(value),
+                None => Node::new(value),
             };
-            result
+            self.0 = Some(new_node);
         }
-    }
 
-
-    impl<T> std::ops::Index<usize> for Node<T> {
-        type Output = T;
-
-        fn index(&self, index: usize) -> (result: &T)
+        pub fn pop(&mut self) -> (popped: Option<T>)
             requires
-                self.valid(),
-                index < self.length,
+                old(self).valid(),
             ensures
-                result == self@[index as int],
+                self.valid(),
+                old(self).0 matches Some(node) ==> {
+                    &&& self@.len() == old(self)@.len() - 1
+                    &&& popped matches Some(value)
+                    &&& value == old(self)@[0]
+                    &&& forall|i: int| 0 <= i < self@.len() ==> self@[i] == old(self)@[i + 1]
+                },
+                old(self).0.is_none() ==> {
+                    &&& self@.len() == 0
+                    &&& popped.is_none()
+                }
         {
-            let mut current = self;
-            for i in 0..index
-                invariant
-                    index < self.length,
-                    current.valid(),
-                    current.length == self.length - i,
-                    current@[(index - i) as int] == self@[index as int],
-            {
-                current = current.tail.as_ref().unwrap();
+            match self.0.take() {
+                Some(node) => {
+                    let (value, new_node) = node.pop();
+                    self.0 = new_node;
+                    Some(value)
+                }
+                None => None,
             }
-            &current.head
-        }
-    }
-
-    impl<T> View for Node<T> {
-        type V = Seq<T>;
-
-        spec fn view(&self) -> Seq<T>;
-    }
-
-    impl<T: DeepView> DeepView for Node<T> {
-        type V = Seq<T::V>;
-
-        open spec fn deep_view(&self) -> Seq<T::V> {
-            Seq::new(self.view().len(), |i: int| self[i].deep_view())
         }
     }
 }
