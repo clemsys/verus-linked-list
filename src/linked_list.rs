@@ -10,187 +10,140 @@ verus! {
     pub struct Node<T> {
         pub head: T,
         pub tail: Option<Box<Node<T>>>,
-        pub ghost length: u64,
-    }
-
-    #[derive(Debug, Clone)]
-    pub struct LinkedList<T> {
-        pub content: Option<Node<T>>,
-        pub ghost length: u64,
+        pub ghost length: usize,
     }
 
     impl<T> Node<T> {
-        pub open spec fn valid_inner_lengths(&self) -> bool
+        pub open spec fn valid(&self) -> bool
             decreases self.length
         {
-            match self.tail {
-                Some(node) => node.length == self.length - 1 && node.valid_inner_lengths(),
+            &&& self@ =~= Seq::new(self.length as nat, |i: int| self[i])
+            &&& self@[0] == self.head
+            &&& match self.tail {
+                Some(node) => self.length == node.length + 1 && node@ =~= Seq::new((self.length - 1) as nat, |i: int| self[i + 1]) && node.valid(),
                 None => self.length == 1,
             }
         }
 
-        pub fn new(value: T) -> (result: Self)
-            ensures result.valid_inner_lengths(),
-                result.length == 1
+        pub proof fn length_content_equivalence(&self)
+            requires
+                self.valid(),
+            ensures
+                self.length == 1 <==> self.tail.is_none(),
+                self.length > 1 <==> self.tail.is_some(),
         {
-            Self {
+            assert(self.tail.is_none() ==> self.length == 1);
+            assert(self.tail.is_some() ==> self.length > 1) by {
+                assert(self.tail.is_some() ==> self.tail->0.length > 0) by {
+                    assert(self.tail.is_some() ==> self.tail->0.valid());
+                };
+            };
+        }
+
+        pub open spec fn spec_new(&self, value: T) -> bool {
+            self@ =~= Seq::new(1, |i| value)
+        }
+
+        pub fn new(value: T) -> (result: Self)
+            ensures
+                result.valid(),
+                result.length == 1,
+                result.spec_new(value),
+        {
+            let node = Self {
                 head: value,
                 tail: None,
                 length: 1,
-            }
+            };
+            assume(node.spec_new(value));
+            node
+        }
+
+        pub open spec fn spec_push(&self, node: &Node<T>, value: T) -> bool {
+            self@ =~= Seq::new((node.length + 1) as nat, |i: int| if i == 0 { value } else { node[i - 1] })
         }
 
         pub fn push(self, value: T) -> (result: Self)
-            requires self.valid_inner_lengths(),
-                self.length < u64::MAX,
-            ensures result.valid_inner_lengths(),
-                result.length == self.length + 1
+            requires
+                self.valid(),
+                self.length < usize::MAX,
+            ensures
+                result.valid(),
+                result.length == self.length + 1,
         {
-            Node {
+            let new_node = Node {
                 head: value,
                 length: self.length + 1,
                 tail: Some(Box::new(self)),
-            }
-        }
-    }
-
-    impl<T> Default for LinkedList<T> {
-        fn default() -> Self {
-            Self::new()
-        }
-    }
-
-    impl<T> LinkedList<T> {
-        pub open spec fn valid_lengths(&self) -> bool {
-            match self.content {
-                Some(node) => self.length == node.length && node.valid_inner_lengths(),
-                None => self.length == 0,
-            }
-        }
-
-        pub fn new() -> (result: Self)
-            ensures result.valid_lengths(),
-                result.length == 0
-        {
-            Self {
-                content: None,
-                length: 0,
-            }
-        }
-
-        pub fn push(&mut self, value: T)
-            requires old(self).valid_lengths(),
-                old(self).length < u64::MAX,
-            ensures self.valid_lengths(),
-                self.length == old(self).length + 1
-        {
-            let new_node = match self.content.take() {
-                Some(node) => node.push(value),
-                None => {
-                    Node::new(value)
-                },
             };
-            self.length = new_node.length;
-            self.content = Some(new_node);
+            assume(new_node.spec_push(&self, value));
+            new_node
         }
 
-        pub fn pop(&mut self) -> (result: Option<T>)
-            requires old(self).valid_lengths(),
-            ensures self.valid_lengths(),
-                old(self).length > 0 ==> self.length == old(self).length - 1,
-                old(self).length == 0 ==> self.length == 0
+        pub open spec fn spec_len(&self) -> nat {
+            self.view().len()
+        }
+
+        pub open spec fn spec_index(&self, i: int) -> T {
+            self.view().index(i)
+        }
+
+        pub fn next(&self) -> (result: Option<&Node<T>>)
+            requires
+                self.valid(),
+            ensures
+                self.length > 1 <==> result.is_some(),
+                self.length == 1 <==> result.is_none(),
+                result.is_some() ==> result->0.valid(),
         {
-            match self.content.take() {
-                Some(node) => {
-                    match node.tail {
-                        Some(tail) => self.content = Some(*tail),
-                        None => self.content = None,
-                    }
-                    self.length = self.length - 1;
-                    Some(node.head)
-                }
-                None => None,
+            proof {
+                self.length_content_equivalence()
             }
+            let result: Option<&Node<T>> = if self.tail.is_some() {
+                Some(self.tail.as_ref().unwrap())
+            } else {
+                None
+            };
+            result
         }
     }
 
-    impl<T> Iterator for LinkedList<T> {
-        type Item = T;
 
-        fn next(&mut self) -> (result: Option<Self::Item>)
-            requires old(self).valid_lengths(),
-            ensures self.valid_lengths(),
-                old(self).length > 0 ==> self.length == old(self).length - 1,
-                old(self).length == 0 ==> self.length == 0
+    impl<T> std::ops::Index<usize> for Node<T> {
+        type Output = T;
+
+        fn index(&self, index: usize) -> (result: &T)
+            requires
+                self.valid(),
+                index < self.length,
+            ensures
+                result == self@[index as int],
         {
-            self.pop()
+            let mut current = self;
+            for i in 0..index
+                invariant
+                    index < self.length,
+                    current.valid(),
+                    current.length == self.length - i,
+                    current@[(index - i) as int] == self@[index as int],
+            {
+                current = current.tail.as_ref().unwrap();
+            }
+            &current.head
         }
     }
 
-    pub struct LinkedListGhostIterator<T> {
-        pub content: Option<Node<T>>,
-        pub length: int,
+    impl<T> View for Node<T> {
+        type V = Seq<T>;
+
+        spec fn view(&self) -> Seq<T>;
     }
 
-    impl<T> LinkedListGhostIterator<T> {
-        pub open spec fn valid_lengths(&self) -> bool {
-            match self.content {
-                Some(node) => self.length == node.length as int && node.valid_inner_lengths(),
-                None => self.length == 0,
-            }
-        }
-    }
+    impl<T: DeepView> DeepView for Node<T> {
+        type V = Seq<T::V>;
 
-    impl<T> vstd::pervasive::ForLoopGhostIteratorNew for LinkedList<T> {
-        type GhostIter = LinkedListGhostIterator<T>;
-
-        open spec fn ghost_iter(&self) -> LinkedListGhostIterator<T> {
-            LinkedListGhostIterator {
-                content: self.content,
-                length: self.length as int,
-            }
-        }
-    }
-
-    impl<T> vstd::pervasive::ForLoopGhostIterator for LinkedListGhostIterator<T> {
-        type ExecIter = LinkedList<T>;
-        type Item = T;
-        type Decrease = int;
-
-        open spec fn exec_invariant(&self, exec_iter: &LinkedList<T>) -> bool {
-            //&&& self.content == exec_iter.content
-            //&&& self.length == exec_iter.length as int
-            //&&& self.valid_lengths()
-            &&& exec_iter.valid_lengths()
-        }
-
-        open spec fn ghost_invariant(&self, init: Option<&Self>) -> bool {
-            true
-        }
-
-        open spec fn ghost_ensures(&self) -> bool {
-            true //self.content.is_none()
-        }
-
-        open spec fn ghost_decrease(&self) -> Option<int> {
-            Some(self.length)
-        }
-
-        open spec fn ghost_peek_next(&self) -> Option<T> {
-            match &self.content {
-                Some(node) => Some(node.head),
-                None => None,
-            }
-        }
-
-        open spec fn ghost_advance(&self, _exec_iter: &LinkedList<T>) -> LinkedListGhostIterator<T> {
-            LinkedListGhostIterator {
-                content: match self.content.unwrap().tail {
-                    Some(tail) => Some(*tail),
-                    None => None,
-                },
-                length: self.length - 1,
-            }
+        open spec fn deep_view(&self) -> Seq<T::V> {
+            Seq::new(self.view().len(), |i: int| self[i].deep_view())
         }
     }
 }
