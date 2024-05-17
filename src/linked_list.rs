@@ -2,11 +2,6 @@ use crate::node::Node;
 use vstd::prelude::*;
 
 verus! {
-    #[verifier(external_fn_specification)]
-    pub fn ex_box_new<T>(value: T) -> Box<T> {
-        Box::new(value)
-    }
-
     #[derive(Debug, Clone)]
     pub struct LinkedList<T>(pub Option<Node<T>>);
 
