@@ -1,6 +1,6 @@
 # Verified linked list
 
-Author: [Clément CHAPOT](clement@chapot.ovh) <br>
+Author: [Clément CHAPOT](mailto:clement@chapot.ovh) <br>
 Description: Linked list verified using Verus
 
 ## Project description
